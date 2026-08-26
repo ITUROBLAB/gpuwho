@@ -1,0 +1,107 @@
+name: release
+
+# Push a tag to cut a release:
+#   make deb            # sanity-check locally first
+#   git tag -a v0.1.1 -m 'prune and log size warning'
+#   git push origin v0.1.1
+#
+# The tag must match the VERSION in the Makefile; the build fails loudly if it
+# does not, rather than publishing a .deb whose filename lies about its version.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      # The runner has no NVIDIA driver, so there is no libnvidia-ml.so.1 and no
+      # nvml.h.  cuda-nvml-dev ships both the header and a stub library that
+      # records the right SONAME, which is all the link needs: the real library
+      # is resolved on the target machine at run time.
+      - name: Install NVML headers and stub
+        run: |
+          set -eux
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cuda-nvml-dev-12-8
+          test -f /usr/local/cuda-12.8/include/nvml.h
+          test -f /usr/local/cuda-12.8/lib64/stubs/libnvidia-ml.so
+
+      - name: Check the tag matches the Makefile VERSION
+        run: |
+          set -eu
+          tag='${{ github.event.inputs.tag || github.ref_name }}'
+          makefile_version=$(make -s printversion CUDA_HOME=/usr/local/cuda-12.8)
+          echo "tag=$tag makefile=$makefile_version"
+          if [ "$tag" != "v$makefile_version" ]; then
+            echo "::error::tag $tag does not match Makefile VERSION $makefile_version"
+            echo "Bump VERSION in the Makefile, or retag."
+            exit 1
+          fi
+          echo "PKG_VERSION=$makefile_version" >> "$GITHUB_ENV"
+
+      - name: Show what the build found
+        run: make config CUDA_HOME=/usr/local/cuda-12.8
+
+      - name: Build
+        run: make CUDA_HOME=/usr/local/cuda-12.8
+
+      # The test suite drives report against synthetic logs, so it runs fine
+      # with no GPU; the GPU-dependent cases skip themselves.
+      - name: Test
+        run: make test CUDA_HOME=/usr/local/cuda-12.8
+
+      - name: Build the .deb
+        run: make deb CUDA_HOME=/usr/local/cuda-12.8
+
+      - name: Verify the package
+        run: |
+          set -eux
+          deb=$(ls gpuwho_*_*.deb)
+          dpkg-deb --info "$deb"
+          dpkg-deb -c "$deb"
+          # Installing must not need a driver present.
+          sudo apt-get install -y "./$deb"
+          gpuwho --version
+          man -w gpuwho
+          test -f /etc/gpuwho/ignore.conf
+          systemctl is-enabled gpuwho-collect.timer || true
+          sudo apt-get purge -y gpuwho
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: gpuwho_*_*.deb
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## Install
+
+            ```sh
+            sudo apt install ./gpuwho_${{ env.PKG_VERSION }}_amd64.deb
+            gpuwho report --day
+            ```
+
+            Installing enables NVIDIA accounting mode, starts the collector
+            timer, and primes the state directory, so reports work immediately.
+
+            Requires an installed NVIDIA driver, which provides
+            `libnvidia-ml.so.1` at run time.  Built against the CUDA 12.8 NVML
+            stub, so it links against whatever driver version is on the target.

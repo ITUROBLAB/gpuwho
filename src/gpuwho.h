@@ -7,7 +7,11 @@
 #include <sys/types.h>
 #include <time.h>
 
+/* The Makefile is the source of truth and passes -DGPUWHO_VERSION; this is the
+ * fallback for building a file outside it. Keep the two in step. */
+#ifndef GPUWHO_VERSION
 #define GPUWHO_VERSION   "0.1.0"
+#endif
 #define GPUWHO_SCHEMA    1
 #define GPUWHO_STATE_DIR "/var/lib/gpuwho"
 

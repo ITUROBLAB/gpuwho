@@ -63,6 +63,7 @@ WARN := -Wall -Wextra -Wshadow -Wpointer-arith -Wstrict-prototypes \
 
 CFLAGS  ?= -O2 -g
 CFLAGS  += -std=c11 -D_GNU_SOURCE $(WARN) $(NVML_CFLAGS)
+CFLAGS  += -DGPUWHO_VERSION='"$(VERSION)"'
 LDLIBS  += $(NVML_LIBS)
 
 # Setting CFLAGS on the command line replaces the whole variable, which would
@@ -71,7 +72,7 @@ LDLIBS  += $(NVML_LIBS)
 CFLAGS  += $(EXTRA_CFLAGS)
 LDFLAGS += $(EXTRA_LDFLAGS)
 
-.PHONY: all clean install uninstall install-units install-conf config test deb
+.PHONY: all clean install uninstall install-units install-conf config test deb printversion
 
 all: $(BIN)
 
@@ -84,7 +85,12 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
 $(OBJDIR):
 	@mkdir -p $(OBJDIR)
 
+# Single source of truth for the version, so CI can check it against the tag.
+printversion:
+	@echo $(VERSION)
+
 config:
+	@echo "version     = $(VERSION)"
 	@echo "CC          = $(CC)"
 	@echo "nvml.h      = $(NVML_H)"
 	@echo "NVML_CFLAGS = $(NVML_CFLAGS)"
@@ -96,11 +102,16 @@ test: $(BIN)
 clean:
 	rm -rf $(OBJDIR) $(BIN)
 
-install: $(BIN)
+# The man page carries the version in its .TH line; stamp it from VERSION so
+# there is still only one place to bump.
+$(OBJDIR)/gpuwho.1: doc/gpuwho.1 Makefile | $(OBJDIR)
+	sed -e 's|"gpuwho [0-9][0-9.]*"|"gpuwho $(VERSION)"|' $< > $@
+
+install: $(BIN) $(OBJDIR)/gpuwho.1
 	install -d $(BINDIR)
 	install -m 0755 $(BIN) $(BINDIR)/$(BIN)
 	install -d $(DESTDIR)$(PREFIX)/share/man/man1
-	gzip -9nc doc/gpuwho.1 > $(DESTDIR)$(PREFIX)/share/man/man1/gpuwho.1.gz
+	gzip -9nc $(OBJDIR)/gpuwho.1 > $(DESTDIR)$(PREFIX)/share/man/man1/gpuwho.1.gz
 	chmod 0644 $(DESTDIR)$(PREFIX)/share/man/man1/gpuwho.1.gz
 
 # The units reference gpuwho by absolute path, so the path is substituted at
@@ -134,7 +145,7 @@ uninstall:
 # Built with dpkg-deb directly: no debhelper, no build-deps beyond dpkg-deb and
 # fakeroot.  The postinst enables accounting and starts the timer, so the
 # machine is ready to report as soon as the package is installed.
-deb: $(BIN) $(OBJDIR)/gpuwho-accounting.service $(OBJDIR)/gpuwho-collect.service
+deb: $(BIN) $(OBJDIR)/gpuwho.1 $(OBJDIR)/gpuwho-accounting.service $(OBJDIR)/gpuwho-collect.service
 	@command -v dpkg-deb >/dev/null || { echo "dpkg-deb not found"; exit 1; }
 	@case '$(DEBROOT)' in $(OBJDIR)/*) ;; *) \
 		echo "refusing to clean '$(DEBROOT)': not under $(OBJDIR)"; exit 1 ;; esac
@@ -146,7 +157,7 @@ deb: $(BIN) $(OBJDIR)/gpuwho-accounting.service $(OBJDIR)/gpuwho-collect.service
 	install -d $(DEBROOT)/usr/share/doc/gpuwho
 	install -d $(DEBROOT)/usr/share/man/man1
 	install -m 0755 $(BIN) $(DEBROOT)/usr/bin/gpuwho
-	gzip -9nc doc/gpuwho.1 > $(DEBROOT)/usr/share/man/man1/gpuwho.1.gz
+	gzip -9nc $(OBJDIR)/gpuwho.1 > $(DEBROOT)/usr/share/man/man1/gpuwho.1.gz
 	chmod 0644 $(DEBROOT)/usr/share/man/man1/gpuwho.1.gz
 	sed -e 's|@BINDIR@|/usr/bin|g' systemd/gpuwho-accounting.service.in \
 		> $(DEBROOT)/usr/lib/systemd/system/gpuwho-accounting.service

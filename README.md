@@ -1,5 +1,13 @@
 # gpuwho
 
+[![build](https://github.com/ITUROBLAB/gpuwho/actions/workflows/release.yml/badge.svg)](https://github.com/ITUROBLAB/gpuwho/actions/workflows/release.yml)
+![version](https://img.shields.io/badge/version-0.1.0-blue)
+![platform](https://img.shields.io/badge/platform-linux%20amd64-lightgrey)
+![standard](https://img.shields.io/badge/std-C11-blue)
+![deps](https://img.shields.io/badge/runtime%20deps-libc%20%2B%20NVIDIA%20driver-brightgreen)
+
+**Who is using the GPUs, when one frees up, and who used how much.**
+
 A single-binary C tool for shared GPU servers. It answers three questions:
 
 - **Who is using the GPUs right now?** — `gpuwho`
@@ -9,13 +17,23 @@ A single-binary C tool for shared GPU servers. It answers three questions:
 It links directly against `libnvidia-ml` (the library behind `nvidia-smi`) and
 reads `/proc` for the parts NVML does not know about, such as who owns a pid.
 
+|  |  |
+|---|---|
+| **Version** | 0.1.0 |
+| **Runtime** | Linux x86-64, an NVIDIA driver providing `libnvidia-ml.so.1` |
+| **Build** | C11 compiler, GNU make, `nvml.h` (from `cuda-nvml-dev` or `nvidia-cuda-dev`) |
+| **Packaging** | `dpkg-deb` + `fakeroot` — no debhelper |
+| **Optional** | `nvidia-persistenced` (keeps accounting mode alive), `curl` (for `wait` notifications), `gzip` (reads compressed logs) |
+| **Tests** | `make test` — 45 cases, no GPU required |
+
 ## Install
 
-Build a `.deb` and install it — after which the machine is already collecting
-and ready to report, with nothing left to configure:
+Download the latest package from
+[**Releases**](https://github.com/ITUROBLAB/gpuwho/releases/latest) and install
+it. The machine is collecting and ready to report as soon as it lands — there
+is nothing further to configure:
 
 ```sh
-make deb
 sudo apt install ./gpuwho_0.1.0_amd64.deb
 gpuwho report --day
 ```
@@ -25,8 +43,12 @@ and primes the state directory with one immediate tick, so `gpuwho report`
 works right away rather than after the first minute. It warns on stderr if
 accounting could not be enabled or if `nvidia-persistenced` is not running.
 
-Building the package needs only `dpkg-deb` and `fakeroot` — no debhelper, no
-build-deps beyond the compiler and `nvml.h`.
+To build the package yourself instead:
+
+```sh
+make deb
+sudo apt install ./gpuwho_0.1.0_amd64.deb
+```
 
 `apt remove` stops and disables the units but keeps your history;
 `apt purge` also deletes `/var/lib/gpuwho` and the config.
