@@ -161,90 +161,6 @@ static interval *tab_get(ivltab *t, int gpu, long long pid, long long pst)
 
 /* --------------------------------------------------------------- log files */
 
-typedef struct {
-	char name[256];
-	int  gz;
-	int  year, month;
-} logfile;
-
-static int logfile_cmp(const void *a, const void *b)
-{
-	const logfile *x = a, *y = b;
-
-	if (x->year != y->year)
-		return x->year - y->year;
-	return x->month - y->month;
-}
-
-/* events-YYYY-MM.jsonl or events-YYYY-MM.jsonl.gz */
-static int parse_logname(const char *name, logfile *out)
-{
-	int y, m, n = 0;
-
-	if (sscanf(name, "events-%4d-%2d.jsonl%n", &y, &m, &n) != 2 || n == 0)
-		return -1;
-	if (m < 1 || m > 12)
-		return -1;
-	if (strcmp(name + n, "") == 0)
-		out->gz = 0;
-	else if (strcmp(name + n, ".gz") == 0)
-		out->gz = 1;
-	else
-		return -1;
-	out->year = y;
-	out->month = m;
-	snprintf(out->name, sizeof(out->name), "%s", name);
-	return 0;
-}
-
-static int shquote(const char *in, char *out, size_t n)
-{
-	size_t o = 0;
-
-	if (n < 3)
-		return -1;
-	out[o++] = '\'';
-	for (; *in; in++) {
-		if (*in == '\'') {
-			if (o + 4 >= n)
-				return -1;
-			memcpy(out + o, "'\\''", 4);
-			o += 4;
-		} else {
-			if (o + 2 >= n)
-				return -1;
-			out[o++] = *in;
-		}
-	}
-	out[o++] = '\'';
-	out[o] = '\0';
-	return 0;
-}
-
-/* Older months are gzipped; shelling out to gzip keeps zlib off the link
- * line for a path that is read rarely and never in the hot loop. */
-static FILE *open_log(const char *dir, const logfile *lf, int *is_pipe)
-{
-	char path[700];
-
-	snprintf(path, sizeof(path), "%s/%s", dir, lf->name);
-	*is_pipe = 0;
-
-	if (!lf->gz)
-		return fopen(path, "r");
-
-	{
-		char quoted[1500], cmd[1600];
-		if (shquote(path, quoted, sizeof(quoted)) != 0) {
-			gw_warn("%s: path too long to decompress", path);
-			return NULL;
-		}
-		snprintf(cmd, sizeof(cmd), "gzip -dc -- %s", quoted);
-		*is_pipe = 1;
-		return popen(cmd, "r");
-	}
-}
-
 static void ingest_line(ivltab *tab, const char *line, const char *fname,
                         long long lineno)
 {
@@ -317,15 +233,13 @@ static void ingest_line(ivltab *tab, const char *line, const char *fname,
 static int load_events(ivltab *tab, long long to, int *nfiles)
 {
 	const char *dir = gw_state_dir();
-	DIR        *d;
-	struct dirent *de;
-	logfile    *files = NULL;
-	size_t      n = 0, cap = 0, i;
+	gw_logfile *files = NULL;
+	size_t      n = 0, i;
+	long long   total = 0;
 
 	*nfiles = 0;
 
-	d = opendir(dir);
-	if (!d) {
+	if (gw_logs_list(&files, &n) != 0) {
 		if (errno == ENOENT) {
 			gw_warn("%s does not exist -- has the collector ever run?",
 			        dir);
@@ -334,41 +248,24 @@ static int load_events(ivltab *tab, long long to, int *nfiles)
 		gw_warn("cannot read %s: %s", dir, strerror(errno));
 		return -1;
 	}
-	while ((de = readdir(d)) != NULL) {
-		logfile lf;
-		if (parse_logname(de->d_name, &lf) != 0)
-			continue;
-		{
-			struct tm tm;
-			time_t    month_start;
-			memset(&tm, 0, sizeof(tm));
-			tm.tm_year = lf.year - 1900;
-			tm.tm_mon = lf.month - 1;
-			tm.tm_mday = 1;
-			month_start = timegm(&tm);
-			if (month_start != (time_t)-1 && (long long)month_start > to)
-				continue; /* entirely after the window */
-		}
-		if (n == cap) {
-			cap = cap ? cap * 2 : 16;
-			files = gw_realloc(files, cap * sizeof(*files));
-		}
-		files[n++] = lf;
-	}
-	closedir(d);
 
-	qsort(files, n, sizeof(*files), logfile_cmp);
+	for (i = 0; i < n; i++)
+		total += files[i].bytes;
 
 	for (i = 0; i < n; i++) {
 		int     is_pipe;
-		FILE   *f = open_log(dir, &files[i], &is_pipe);
+		FILE   *f;
 		char   *line = NULL;
 		size_t  cap2 = 0;
 		ssize_t got;
 		long long lineno = 0;
 
+		if (files[i].month_start > to)
+			continue; /* entirely after the window */
+
+		f = gw_log_open(&files[i], &is_pipe);
 		if (!f) {
-			gw_warn("cannot read %s/%s: %s", dir, files[i].name,
+			gw_warn("cannot read %s: %s", files[i].path,
 			        strerror(errno));
 			continue;
 		}
@@ -386,6 +283,14 @@ static int load_events(ivltab *tab, long long to, int *nfiles)
 	}
 
 	free(files);
+
+	/* Surface the size complaint where a human will actually see it.  It
+	 * goes to stderr, so piping the report stays clean. */
+	if (gw_log_limit() > 0 && total > gw_log_limit()) {
+		char msg[256];
+		gw_log_size_message(msg, sizeof(msg), total, gw_log_limit());
+		gw_warn("%s", msg);
+	}
 	return 0;
 }
 

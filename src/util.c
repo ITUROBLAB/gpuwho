@@ -163,6 +163,25 @@ void gw_fmt_mem(unsigned long long bytes, char *buf, size_t n)
 		snprintf(buf, n, "%.0fM", (double)bytes / (1024.0 * 1024.0));
 }
 
+void gw_fmt_bytes(unsigned long long bytes, char *buf, size_t n)
+{
+	const double kib = 1024.0;
+	const double mib = 1024.0 * 1024.0;
+	const double gib = 1024.0 * 1024.0 * 1024.0;
+
+	if (bytes == GW_MEM_UNKNOWN) {
+		snprintf(buf, n, "-");
+	} else if ((double)bytes >= gib) {
+		snprintf(buf, n, "%.1fG", (double)bytes / gib);
+	} else if ((double)bytes >= mib) {
+		snprintf(buf, n, "%.1fM", (double)bytes / mib);
+	} else if ((double)bytes >= kib) {
+		snprintf(buf, n, "%.1fK", (double)bytes / kib);
+	} else {
+		snprintf(buf, n, "%lluB", bytes);
+	}
+}
+
 void gw_fmt_gib(unsigned long long bytes, char *buf, size_t n)
 {
 	if (bytes == GW_MEM_UNKNOWN) {

@@ -103,6 +103,7 @@ int gw_state_load(gw_state *st, const char *path)
 	}
 
 	st->last_tick = json_int(json_get(root, "last_tick"), 0);
+	st->log_warned = json_int(json_get(root, "log_warned"), 0);
 
 	open = json_get(root, "open");
 	n = json_len(open);
@@ -149,6 +150,8 @@ int gw_state_save(const gw_state *st, const char *path)
 	jb_obj(&b, NULL);
 	jb_int(&b, "schema", GPUWHO_SCHEMA);
 	jb_int(&b, "last_tick", st->last_tick);
+	if (st->log_warned)
+		jb_int(&b, "log_warned", st->log_warned);
 	jb_arr(&b, "open");
 	for (i = 0; i < st->n; i++) {
 		const gw_open *r = &st->open[i];

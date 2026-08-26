@@ -335,6 +335,28 @@ int gw_cmd_collect(int argc, char **argv)
 		ev = NULL;
 	}
 
+	/* Complain about an oversized log, but only when it crosses a fresh
+	 * multiple of the limit.  A one-minute timer would otherwise repeat the
+	 * same line into journald forever.  The counter resets on its own once
+	 * the log is pruned back under the limit. */
+	{
+		long long limit = gw_log_limit();
+
+		if (limit > 0) {
+			long long total = gw_logs_total_bytes();
+			long long step = total / limit;
+
+			if (step > st.log_warned) {
+				char msg[256];
+				gw_log_size_message(msg, sizeof(msg), total, limit);
+				gw_warn("%s", msg);
+				st.log_warned = step;
+			} else if (step < st.log_warned) {
+				st.log_warned = step;
+			}
+		}
+	}
+
 	st.last_tick = now;
 	if (gw_state_save(&st, statepath) != 0) {
 		gw_warn("cannot write %s: %s", statepath, strerror(errno));

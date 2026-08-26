@@ -1,5 +1,5 @@
 .\" The .TH version is restamped from the Makefile's VERSION at install time.
-.TH GPUWHO 1 "2026-08-26" "gpuwho 0.1.0" "User Commands"
+.TH GPUWHO 1 "2026-08-26" "gpuwho 0.1.1" "User Commands"
 .SH NAME
 gpuwho \- who is using the GPUs, when one frees up, and who used how much
 .SH SYNOPSIS
@@ -16,6 +16,9 @@ gpuwho \- who is using the GPUs, when one frees up, and who used how much
 .RI [ options ]
 .br
 .B gpuwho setup
+.RI [ options ]
+.br
+.B gpuwho prune
 .RI [ options ]
 .SH DESCRIPTION
 .B gpuwho
@@ -65,6 +68,10 @@ not by hand.
 .B gpuwho setup
 Enable NVIDIA accounting mode on every GPU (requires root) and print install
 guidance.
+.TP
+.B gpuwho prune
+Delete monthly event log files. Irreversible; see
+.BR "PRUNE OPTIONS" .
 .SH GLOBAL OPTIONS
 .TP
 .BI \-\-state\-dir " DIR"
@@ -94,6 +101,17 @@ Apply no rules at all; show every compute process.
 Ignore compute processes holding less than
 .I SIZE
 of GPU memory.
+.TP
+.BI \-\-log\-max\-size " SIZE"
+Complain once the event log grows past
+.IR SIZE ,
+default 10M.
+.B 0
+disables the check. The collector warns only when the log crosses a fresh
+multiple of the limit, so a one-minute timer does not repeat itself into
+journald; the counter resets once the log is pruned back down.
+.B gpuwho report
+warns on stderr whenever the log is over, leaving piped output clean.
 .TP
 .B \-\-no\-color
 Never colorize, even on a TTY.
@@ -163,6 +181,44 @@ in local time, or
 .TP
 .B \-\-json
 Machine-readable output.
+.SH PRUNE OPTIONS
+Exactly one of the following is required. Deletion is irreversible: the event
+log is the only record of past usage, and a deleted month is gone from every
+future report.
+.TP
+.BI \-\-older\-than " WHEN"
+Delete months lying entirely before
+.IR WHEN .
+A month is kept unless all of it is older, so nothing newer than you asked for
+is destroyed. Month boundaries are UTC while a bare date is local midnight, so
+near a boundary use
+.BI @ epoch
+if you need it exact.
+.TP
+.BI \-\-keep " N"
+Delete all but the
+.I N
+most recent finished months.
+.TP
+.B \-\-all
+Delete every event log, the month in progress included.
+.PP
+And:
+.TP
+.BR \-n ", " \-\-dry\-run
+List what would be deleted; delete nothing.
+.TP
+.BR \-y ", " \-\-yes
+Do not prompt. Required when stdin is not a terminal \(em without a terminal to
+confirm at, and without this flag,
+.B prune
+refuses and exits nonzero.
+.PP
+.B \-\-keep
+and
+.B \-\-older\-than
+never touch the month in progress. Pruning takes the collector's lock, so a
+month cannot be deleted out from under a tick that is appending to it.
 .SH IGNORE RULES
 A rule is one of:
 .TP
@@ -217,7 +273,8 @@ every tick.
 .TP
 .I /var/lib/gpuwho/events-YYYY-MM.jsonl
 Append-only event log, one file per month. Gzipped months are read
-transparently. Retention is file deletion.
+transparently. Retention is file deletion \(em see
+.BR "PRUNE OPTIONS" .
 .SH NOTES
 Workloads launched through the Docker daemon appear as
 .B root

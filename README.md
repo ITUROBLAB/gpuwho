@@ -1,7 +1,7 @@
 # gpuwho
 
 [![build](https://github.com/ITUROBLAB/gpuwho/actions/workflows/release.yml/badge.svg)](https://github.com/ITUROBLAB/gpuwho/actions/workflows/release.yml)
-![version](https://img.shields.io/badge/version-0.1.0-blue)
+![version](https://img.shields.io/badge/version-0.1.1-blue)
 ![platform](https://img.shields.io/badge/platform-linux%20amd64-lightgrey)
 ![standard](https://img.shields.io/badge/std-C11-blue)
 ![deps](https://img.shields.io/badge/runtime%20deps-libc%20%2B%20NVIDIA%20driver-brightgreen)
@@ -19,12 +19,12 @@ reads `/proc` for the parts NVML does not know about, such as who owns a pid.
 
 |  |  |
 |---|---|
-| **Version** | 0.1.0 |
+| **Version** | 0.1.1 |
 | **Runtime** | Linux x86-64, an NVIDIA driver providing `libnvidia-ml.so.1` |
 | **Build** | C11 compiler, GNU make, `nvml.h` (from `cuda-nvml-dev` or `nvidia-cuda-dev`) |
 | **Packaging** | `dpkg-deb` + `fakeroot` — no debhelper |
 | **Optional** | `nvidia-persistenced` (keeps accounting mode alive), `curl` (for `wait` notifications), `gzip` (reads compressed logs) |
-| **Tests** | `make test` — 45 cases, no GPU required |
+| **Tests** | `make test` — 64 cases, no GPU required |
 
 ## Install
 
@@ -34,7 +34,7 @@ it. The machine is collecting and ready to report as soon as it lands — there
 is nothing further to configure:
 
 ```sh
-sudo apt install ./gpuwho_0.1.0_amd64.deb
+sudo apt install ./gpuwho_0.1.1_amd64.deb
 gpuwho report --day
 ```
 
@@ -47,7 +47,7 @@ To build the package yourself instead:
 
 ```sh
 make deb
-sudo apt install ./gpuwho_0.1.0_amd64.deb
+sudo apt install ./gpuwho_0.1.1_amd64.deb
 ```
 
 `apt remove` stops and disables the units but keeps your history;
@@ -236,6 +236,42 @@ close with `src:"tick"`.
 
 Event logs are one file per month. Gzipped months are read transparently.
 Retention is file deletion — there is no database and nothing to vacuum.
+
+## Keeping the log small
+
+The log grows by a couple of lines per job, so it stays small for a long time.
+Past 10 MB (`--log-max-size`, `0` disables) gpuwho starts saying so:
+
+- `gpuwho report` warns on **stderr**, so piped output stays clean.
+- The collector warns too, but only when the log crosses a *fresh multiple* of
+  the limit — otherwise a one-minute timer would repeat the same line into
+  journald forever. The level is remembered in `state.json` and resets on its
+  own once the log is pruned back down.
+
+`gpuwho prune` is the delete side of that. It is irreversible — a deleted month
+is gone from every future report — so nothing goes without `--yes` or an
+answered prompt, and `--dry-run` shows the exact list first:
+
+```sh
+gpuwho prune --keep 6 --dry-run     # what would go, if I kept 6 months?
+sudo gpuwho prune --keep 6          # prompts before deleting
+sudo gpuwho prune --older-than 2026-01-01 --yes
+sudo gpuwho prune --all --yes       # everything, current month included
+```
+
+Three details that keep it safe:
+
+- `--older-than` deletes a month only when **all** of it predates the cutoff,
+  so it never destroys data newer than you asked for. Month boundaries are UTC
+  while a bare date is local midnight; near a boundary use `@<epoch>` to be
+  exact.
+- `--keep` and `--older-than` never touch the month in progress. Only `--all`
+  does.
+- Pruning takes the collector's lock, so a month cannot be deleted out from
+  under a tick that is appending to it.
+
+Without a terminal to confirm at and without `--yes`, `prune` refuses and exits
+nonzero rather than guessing — which is what you want from cron.
 
 ## What the numbers mean
 

@@ -42,6 +42,11 @@ report() {
 	GPUWHO_STATE_DIR="$TMP/st" "$GPUWHO" report --since "@$T0" --until "@$T1" "$@" 2>/dev/null
 }
 
+# Same, but leaves stderr alone so warnings can be inspected.
+report_err() {
+	GPUWHO_STATE_DIR="$TMP/st" "$GPUWHO" report --since "@$T0" --until "@$T1" "$@"
+}
+
 # check <name> <expected> <actual>
 check() {
 	if [ "$2" = "$3" ]; then
@@ -246,6 +251,77 @@ if [ "${NPROC:-0}" -ge 1 ]; then
 else
 	echo "skip  ignore rules (no compute process on any GPU)"
 fi
+
+# --------------------------------------------------------------------------
+echo '--- log size warning'
+fresh
+start 0 1400 $((T0 - 10)) $T0
+end_acct 0 1400 $((T0 - 10)) $((T0 + 3600)) 3600 50 1024
+# Pad the month well past a tiny limit.
+dd if=/dev/zero bs=1024 count=64 2>/dev/null | tr '\0' '#' >> "$LOG"
+check "warns over the limit" "1" \
+	"$(report_err --log-max-size 1K 2>&1 >/dev/null | grep -c 'over the')"
+check "silent under the limit" "0" \
+	"$(report_err --log-max-size 10M 2>&1 >/dev/null | grep -c 'over the')"
+check "--log-max-size 0 disables" "0" \
+	"$(report_err --log-max-size 0 2>&1 >/dev/null | grep -c 'over the')"
+check "warning goes to stderr, not stdout" "0" \
+	"$(report_err --log-max-size 1K 2>/dev/null | grep -c 'over the')"
+check "warning names the prune command" "1" \
+	"$(report_err --log-max-size 1K 2>&1 >/dev/null | grep -c 'gpuwho prune')"
+check "report still works while over" "1.0" "$(field yavuz 2)"
+
+# --------------------------------------------------------------------------
+echo '--- prune'
+mkmonths() {
+	rm -rf "$TMP/st"; mkdir -p "$TMP/st"
+	for m in "$@"; do
+		printf '{"v":1,"ev":"start","t":1,"gpu":0,"pid":1,"pst":1,"uid":0,"user":"u","cmd":"x"}\n' \
+			> "$TMP/st/events-$m.jsonl"
+	done
+}
+prune() { GPUWHO_STATE_DIR="$TMP/st" "$GPUWHO" prune "$@" 2>&1; }
+nmonths() { ls "$TMP/st" 2>/dev/null | grep -c '^events-' || true; }
+
+mkmonths 2025-11 2025-12 2026-01
+check "dry-run deletes nothing"  "3" "$(prune --all --dry-run >/dev/null; nmonths)"
+check "no selection is an error" "1" "$(prune --dry-run >/dev/null 2>&1; echo $?)"
+check "two selections error"     "1" "$(prune --all --keep 1 -y >/dev/null 2>&1; echo $?)"
+check "months intact after errors" "3" "$(nmonths)"
+
+check "refuses without a tty"    "1" "$(prune --all </dev/null >/dev/null 2>&1; echo $?)"
+check "still intact after refusal" "3" "$(nmonths)"
+
+# --older-than only removes months that are ENTIRELY older than the cutoff, so
+# nothing newer than what was asked for is ever destroyed.  Month boundaries are
+# UTC while a bare date parses as local midnight, so a month is kept whenever
+# its UTC end falls after that instant -- use @epoch to pin the boundary exactly.
+mkmonths 2025-11 2025-12 2026-01
+prune --older-than 2026-01-01 --yes >/dev/null
+check "--older-than keeps partially-newer months" "2" "$(nmonths)"
+
+mkmonths 2025-11 2025-12 2026-01
+prune --older-than @1767225600 --yes >/dev/null   # 2026-01-01T00:00:00Z exactly
+check "--older-than at the exact UTC boundary" "1" "$(nmonths)"
+
+mkmonths 2025-11 2025-12 2026-01
+prune --older-than @1764547200 --yes >/dev/null   # 2025-12-01T00:00:00Z exactly
+check "--older-than is inclusive of a month that just ended" "2" "$(nmonths)"
+
+mkmonths 2025-11 2025-12 2026-01
+prune --keep 1 --yes >/dev/null
+check "--keep 1 leaves one finished month" "1" "$(nmonths)"
+
+mkmonths 2025-11 2025-12 2026-01
+prune --all --yes >/dev/null
+check "--all removes everything" "0" "$(nmonths)"
+check "prune on an empty dir is fine" "0" "$(prune --all --yes >/dev/null 2>&1; echo $?)"
+
+# A pruned log must not leave the report broken.
+mkmonths 2025-11 2026-01
+prune --keep 1 --yes >/dev/null
+check "report survives a prune" "0" \
+	"$(GPUWHO_STATE_DIR="$TMP/st" "$GPUWHO" report --all >/dev/null 2>&1; echo $?)"
 
 # --------------------------------------------------------------------------
 echo

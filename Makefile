@@ -9,7 +9,7 @@ BINDIR  := $(DESTDIR)$(PREFIX)/bin
 UNITDIR := $(DESTDIR)/etc/systemd/system
 CONFDIR := $(DESTDIR)/etc/gpuwho
 
-VERSION := 0.1.0
+VERSION := 0.1.1
 DEB_MAINTAINER ?= Kadir Yavuz Kurt <k.yavuzkurt1@gmail.com>
 DEB_ARCH := $(shell dpkg --print-architecture 2>/dev/null || echo amd64)
 DEB_NAME := gpuwho_$(VERSION)_$(DEB_ARCH).deb

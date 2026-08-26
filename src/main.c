@@ -14,6 +14,7 @@ static void usage(FILE *f)
 "  gpuwho report [options]     aggregate the event log over a time window\n"
 "  gpuwho collect              one-shot collector tick (run from the timer)\n"
 "  gpuwho setup [options]      enable accounting mode, print install guidance\n"
+"  gpuwho prune [options]      delete old event logs\n"
 "\n"
 "global options:\n"
 "  --state-dir DIR   where state.json and the event log live\n"
@@ -22,6 +23,8 @@ static void usage(FILE *f)
 "  --ignore-file F   read rules from F (default /etc/gpuwho/ignore.conf)\n"
 "  --no-ignore       apply no rules at all -- show every compute process\n"
 "  --min-mem SIZE    ignore compute processes below SIZE of GPU memory\n"
+"  --log-max-size SZ warn once the event log grows past SZ (default 10M;\n"
+"                    0 disables the check)\n"
 "  --no-color        never colorize, even on a TTY (NO_COLOR is honored too)\n"
 "  -h, --help        this text, or per-command help after a subcommand\n"
 "  -V, --version     print the version and exit\n"
@@ -73,6 +76,18 @@ int main(int argc, char **argv)
 			if (gw_parse_size(argv[++i], &sz) != 0)
 				gw_die("bad size '%s' (try 100M, 1G)", argv[i]);
 			gw_ignore_min_mem(sz);
+		} else if (strcmp(a, "--log-max-size") == 0) {
+			unsigned long long sz;
+			if (i + 1 >= argc)
+				gw_die("--log-max-size needs a size");
+			if (strcmp(argv[i + 1], "0") == 0) {
+				i++;
+				gw_log_limit_set(0);
+			} else if (gw_parse_size(argv[++i], &sz) != 0) {
+				gw_die("bad size '%s' (try 10M, 1G, or 0)", argv[i]);
+			} else {
+				gw_log_limit_set((long long)sz);
+			}
 		} else if (strcmp(a, "--no-color") == 0) {
 			gw_set_no_color(1);
 		} else if (strcmp(a, "-V") == 0 || strcmp(a, "--version") == 0) {
@@ -109,6 +124,8 @@ int main(int argc, char **argv)
 			rc = gw_cmd_report(sub_argc, sub_argv);
 		else if (strcmp(cmd, "setup") == 0)
 			rc = gw_cmd_setup(sub_argc, sub_argv);
+		else if (strcmp(cmd, "prune") == 0)
+			rc = gw_cmd_prune(sub_argc, sub_argv);
 		else
 			gw_die("unknown command '%s' (try 'gpuwho --help')", cmd);
 

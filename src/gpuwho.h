@@ -10,7 +10,7 @@
 /* The Makefile is the source of truth and passes -DGPUWHO_VERSION; this is the
  * fallback for building a file outside it. Keep the two in step. */
 #ifndef GPUWHO_VERSION
-#define GPUWHO_VERSION   "0.1.0"
+#define GPUWHO_VERSION   "0.1.1"
 #endif
 #define GPUWHO_SCHEMA    1
 #define GPUWHO_STATE_DIR "/var/lib/gpuwho"
@@ -42,6 +42,9 @@ void gw_fmt_hms(long long secs, char *buf, size_t n);
 void gw_fmt_mem(unsigned long long bytes, char *buf, size_t n);
 /* "28.4" (GiB, one decimal) */
 void gw_fmt_gib(unsigned long long bytes, char *buf, size_t n);
+/* "1.9G" / "195.4K" / "12B" -- file sizes, which span a much wider range than
+ * GPU memory and must not round a small log down to "0M". */
+void gw_fmt_bytes(unsigned long long bytes, char *buf, size_t n);
 
 /* "8G", "512M", bare number = MiB. Returns 0 on success. */
 int gw_parse_size(const char *s, unsigned long long *out);
@@ -127,6 +130,36 @@ int  gw_ignored(const gw_procinfo *info, unsigned long long used_mem);
 int  gw_ignore_active(void);
 void gw_ignore_free(void);
 
+/* ------------------------------------------------------------------- logs.c
+ *
+ * The event log is one file per month under the state directory.  Reports,
+ * pruning and the size check all need the same view of it. */
+
+typedef struct {
+	char      name[256];  /* events-YYYY-MM.jsonl[.gz] */
+	char      path[700];  /* state dir + name */
+	int       gz;
+	int       year, month;
+	long long bytes;
+	long long month_start; /* epoch seconds, UTC */
+	long long month_end;   /* start of the following month */
+} gw_logfile;
+
+/* Sorted oldest first.  Returns 0 on success (n may be 0), -1 if the state
+ * directory cannot be read. */
+int  gw_logs_list(gw_logfile **out, size_t *n);
+long long gw_logs_total_bytes(void);
+
+/* Open a log file for reading, transparently decompressing a gzipped month.
+ * Sets *is_pipe, which decides between fclose and pclose. */
+FILE *gw_log_open(const gw_logfile *lf, int *is_pipe);
+
+/* Size limit past which gpuwho complains.  0 disables the check. */
+void      gw_log_limit_set(long long bytes);
+long long gw_log_limit(void);
+/* Format a "log is X, over the Y limit" complaint into buf. */
+void gw_log_size_message(char *buf, size_t n, long long total, long long limit);
+
 /* ------------------------------------------------------------------ state.c */
 
 typedef struct {
@@ -141,6 +174,10 @@ typedef struct {
 
 typedef struct {
 	long long last_tick;
+	/* How many multiples of the size limit the log had already grown past
+	 * when we last complained, so a one-minute timer does not repeat the
+	 * same warning into journald forever.  Resets when the log shrinks. */
+	long long log_warned;
 	gw_open  *open;
 	size_t    n, cap;
 } gw_state;
@@ -159,5 +196,6 @@ int gw_cmd_wait(int argc, char **argv);
 int gw_cmd_collect(int argc, char **argv);
 int gw_cmd_report(int argc, char **argv);
 int gw_cmd_setup(int argc, char **argv);
+int gw_cmd_prune(int argc, char **argv);
 
 #endif /* GPUWHO_H */
