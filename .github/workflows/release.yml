@@ -43,6 +43,25 @@ jobs:
           test -f /usr/local/cuda-12.8/include/nvml.h
           test -f /usr/local/cuda-12.8/lib64/stubs/libnvidia-ml.so
 
+      # gpuwho records a DT_NEEDED on libnvidia-ml.so.1, which normally comes
+      # from the installed driver.  A runner has no driver, so without this the
+      # binary cannot start at all -- not even `gpuwho --version`, which never
+      # calls NVML -- and every test fails with empty output.
+      #
+      # The CUDA stub exports the same SONAME, so it satisfies the loader.  Its
+      # entry points do not talk to a GPU, which is fine: CI only exercises
+      # report, prune and --version.  Anything that really calls NVML still
+      # fails, and the test suite skips those cases on its own.
+      - name: Satisfy the NVML SONAME (the runner has no driver)
+        run: |
+          set -eux
+          objdump -p /usr/local/cuda-12.8/lib64/stubs/libnvidia-ml.so \
+            | grep -qE 'SONAME +libnvidia-ml\.so\.1'
+          sudo ln -sf /usr/local/cuda-12.8/lib64/stubs/libnvidia-ml.so \
+                      /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+          sudo ldconfig
+          ldconfig -p | grep libnvidia-ml
+
       - name: Check the tag matches the Makefile VERSION
         run: |
           set -eu

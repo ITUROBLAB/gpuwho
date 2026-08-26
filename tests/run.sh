@@ -21,6 +21,23 @@ fi
 TMP=$(mktemp -d) || exit 2
 trap 'rm -rf "$TMP"' EXIT
 
+# Preflight: refuse to run if the binary cannot even start.
+#
+# gpuwho records a DT_NEEDED on libnvidia-ml.so.1, which comes from the NVIDIA
+# driver, so on a machine without one nothing runs -- not even --version, which
+# never touches NVML.  Without this check that surfaces as dozens of
+# "expected X, actual (empty)" failures that say nothing about the cause.
+if ! "$GPUWHO" --version >/dev/null 2>"$TMP/preflight"; then
+	echo "cannot run $GPUWHO:" >&2
+	sed 's/^/  /' "$TMP/preflight" >&2
+	echo >&2
+	echo "If this is 'libnvidia-ml.so.1: cannot open shared object file'," >&2
+	echo "the NVIDIA driver is not installed.  The tests need no GPU, but" >&2
+	echo "the binary still has to load; symlink the CUDA stub as" >&2
+	echo "libnvidia-ml.so.1 to satisfy the loader." >&2
+	exit 2
+fi
+
 pass=0
 fail=0
 

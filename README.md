@@ -24,7 +24,7 @@ reads `/proc` for the parts NVML does not know about, such as who owns a pid.
 | **Build** | C11 compiler, GNU make, `nvml.h` (from `cuda-nvml-dev` or `nvidia-cuda-dev`) |
 | **Packaging** | `dpkg-deb` + `fakeroot` — no debhelper |
 | **Optional** | `nvidia-persistenced` (keeps accounting mode alive), `curl` (for `wait` notifications), `gzip` (reads compressed logs) |
-| **Tests** | `make test` — 64 cases, no GPU required |
+| **Tests** | `make test` — 64 cases, no GPU required (the driver library still has to load) |
 
 ## Install
 
@@ -332,3 +332,11 @@ aggregation loop.
 
 No web UI, no database, no Slurm integration, no multi-node aggregation, no
 Windows/WSL, no MIG support. See **Extending: Slurm** for the seam left open.
+
+## Contact 
+
+Feel free to reach out to the maintainer k.yavuzkurt1@gmail.com if you have questions, suggestions, or want to contribute.
+
+## License
+
+TBD
