@@ -1,0 +1,15 @@
+Upstream-Name: gpuwho
+Copyright: 2026 Kadir Yavuz Kurt
+License: UNDECIDED
+
+ No license has been chosen for this software yet.  Until one is, all rights
+ are reserved: this package is for internal use and is not for redistribution.
+
+ To settle it later, add a LICENSE file at the top of the repository and
+ replace this file with the corresponding text.  If you want the machine-
+ readable Debian form, it is:
+
+   Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+
+ Nothing in the build depends on this file's contents, so changing it is a
+ one-file edit and a rebuild.

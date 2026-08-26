@@ -1,0 +1,42 @@
+#!/bin/sh
+# gpuwho postinst -- leave the machine ready to report.
+set -e
+
+case "$1" in
+configure)
+	# Only touch systemd when it is actually running (not in a chroot or a
+	# container image build).
+	if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+		systemctl daemon-reload >/dev/null 2>&1 || true
+
+		# Enabling accounting mode is what makes per-process metrics
+		# exist.  The unit re-runs at every boot because a reboot or a
+		# driver reload clears the setting.
+		if systemctl enable --now gpuwho-accounting.service >/dev/null 2>&1; then
+			:
+		else
+			echo "gpuwho: could not enable accounting mode." >&2
+			echo "gpuwho: history will record durations but no" \
+			     "utilization or memory metrics." >&2
+			echo "gpuwho: check 'systemctl status gpuwho-accounting.service'" >&2
+		fi
+
+		if ! systemctl enable --now gpuwho-collect.timer >/dev/null 2>&1; then
+			echo "gpuwho: could not enable gpuwho-collect.timer" >&2
+		fi
+
+		# Prime the state directory so 'gpuwho report' works right away
+		# instead of only after the first timer tick.
+		/usr/bin/gpuwho collect >/dev/null 2>&1 || true
+
+		if ! systemctl is-active --quiet nvidia-persistenced 2>/dev/null; then
+			echo "gpuwho: nvidia-persistenced is not running." >&2
+			echo "gpuwho: without it the driver unloads while the GPUs" \
+			     "are idle and accounting mode is lost until reboot." >&2
+		fi
+	fi
+	;;
+abort-upgrade | abort-remove | abort-deconfigure) ;;
+esac
+
+exit 0

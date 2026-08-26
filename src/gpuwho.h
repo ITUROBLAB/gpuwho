@@ -108,6 +108,21 @@ typedef struct {
 int  gw_proc_lookup(pid_t pid, gw_procinfo *out);
 void gw_proc_unknown(gw_procinfo *out);
 
+/* ----------------------------------------------------------------- filter.c
+ *
+ * Graphics-only processes (Xorg, the compositor, browsers) never appear here:
+ * NVML's compute process list excludes them by construction.  These rules are
+ * for processes that really do hold a compute context but should not count as
+ * jobs on this particular machine. */
+
+void gw_ignore_add(const char *rule);   /* "name", "cmd:glob", "user:x", "uid:n" */
+void gw_ignore_file(const char *path);  /* default /etc/gpuwho/ignore.conf */
+void gw_ignore_disable(void);           /* --no-ignore */
+void gw_ignore_min_mem(unsigned long long bytes);
+int  gw_ignored(const gw_procinfo *info, unsigned long long used_mem);
+int  gw_ignore_active(void);
+void gw_ignore_free(void);
+
 /* ------------------------------------------------------------------ state.c */
 
 typedef struct {

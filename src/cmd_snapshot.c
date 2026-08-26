@@ -27,11 +27,17 @@ static void snapshot_usage(FILE *f)
 "Point-in-time view of every GPU: memory, utilization, and the compute\n"
 "processes on it with their owner, uptime, and command line.\n"
 "\n"
+"Only compute contexts are listed.  Graphics-only processes -- Xorg, the\n"
+"compositor, browsers -- are excluded by NVML itself and never appear.\n"
+"\n"
 "options:\n"
 "  --gpu N       only this GPU index (repeatable)\n"
 "  --json        machine-readable output\n"
 "  --no-color    never colorize\n"
-"  -h, --help    this text\n");
+"  -h, --help    this text\n"
+"\n"
+"Also accepts the global --ignore / --no-ignore / --min-mem options;\n"
+"see 'gpuwho --help'.\n");
 }
 
 static int gpu_selected(const int *sel, int nsel, unsigned int idx)
@@ -82,6 +88,8 @@ static void print_json(const gw_snapshot *snap, const int *sel, int nsel,
 			gw_procinfo info;
 
 			gw_proc_lookup((pid_t)d->procs[j].pid, &info);
+			if (gw_ignored(&info, d->procs[j].used_mem))
+				continue;
 			jb_obj(&b, NULL);
 			jb_int(&b, "pid", d->procs[j].pid);
 			jb_int(&b, "uid", info.uid);
@@ -137,6 +145,8 @@ static void print_text(const gw_snapshot *snap, const int *sel, int nsel,
 			r.pid = d->procs[j].pid;
 			r.mem = d->procs[j].used_mem;
 			gw_proc_lookup((pid_t)r.pid, &r.info);
+			if (gw_ignored(&r.info, r.mem))
+				continue;
 			r.uptime = r.info.pst ? now - r.info.pst : -1;
 
 			if (nrows == cap) {

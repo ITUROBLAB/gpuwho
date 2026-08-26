@@ -18,9 +18,18 @@ static void usage(FILE *f)
 "global options:\n"
 "  --state-dir DIR   where state.json and the event log live\n"
 "                    (default " GPUWHO_STATE_DIR ", or $GPUWHO_STATE_DIR)\n"
+"  --ignore RULE     do not count processes matching RULE (repeatable)\n"
+"  --ignore-file F   read rules from F (default /etc/gpuwho/ignore.conf)\n"
+"  --no-ignore       apply no rules at all -- show every compute process\n"
+"  --min-mem SIZE    ignore compute processes below SIZE of GPU memory\n"
 "  --no-color        never colorize, even on a TTY (NO_COLOR is honored too)\n"
 "  -h, --help        this text, or per-command help after a subcommand\n"
 "  -V, --version     print the version and exit\n"
+"\n"
+"A RULE is a glob against the command basename or the full command line\n"
+"('sunshine', '*ffmpeg*'), or 'cmd:GLOB', 'user:NAME', 'uid:N'.  Graphics-only\n"
+"processes -- Xorg, the compositor, browsers -- are never listed in the first\n"
+"place: NVML's compute process list excludes them, so no rule is needed.\n"
 "\n"
 "Run 'gpuwho <command> --help' for the options of a single command.\n");
 }
@@ -47,6 +56,23 @@ int main(int argc, char **argv)
 			gw_set_state_dir(argv[++i]);
 		} else if (strncmp(a, "--state-dir=", 12) == 0) {
 			gw_set_state_dir(a + 12);
+		} else if (strcmp(a, "--ignore") == 0) {
+			if (i + 1 >= argc)
+				gw_die("--ignore needs a rule");
+			gw_ignore_add(argv[++i]);
+		} else if (strcmp(a, "--ignore-file") == 0) {
+			if (i + 1 >= argc)
+				gw_die("--ignore-file needs a path");
+			gw_ignore_file(argv[++i]);
+		} else if (strcmp(a, "--no-ignore") == 0) {
+			gw_ignore_disable();
+		} else if (strcmp(a, "--min-mem") == 0) {
+			unsigned long long sz;
+			if (i + 1 >= argc)
+				gw_die("--min-mem needs a size");
+			if (gw_parse_size(argv[++i], &sz) != 0)
+				gw_die("bad size '%s' (try 100M, 1G)", argv[i]);
+			gw_ignore_min_mem(sz);
 		} else if (strcmp(a, "--no-color") == 0) {
 			gw_set_no_color(1);
 		} else if (strcmp(a, "-V") == 0 || strcmp(a, "--version") == 0) {

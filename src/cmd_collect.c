@@ -283,6 +283,21 @@ int gw_cmd_collect(int argc, char **argv)
 		if (matched)
 			continue;
 
+		/* Filter only here, when deciding whether to start tracking.
+		 * Already-open intervals are matched against the unfiltered live
+		 * set above, so a process whose memory drifts across --min-mem
+		 * cannot flap open and closed tick after tick: once tracked, it
+		 * is tracked through to its end. */
+		if (gw_ignored(&live[j].info, 0))
+			continue;
+
+		/* Attribution seam: everything a start event knows about a
+		 * process is assembled here.  A Slurm integration would add its
+		 * job id at this point -- read /proc/<pid>/cgroup, pull the
+		 * job_<id> component out of the slurm cgroup path, and write it
+		 * as an extra field.  Readers ignore unknown fields and every
+		 * line carries "v", so adding one does not break an existing
+		 * log or an older gpuwho reading it. */
 		memset(&rec, 0, sizeof(rec));
 		rec.gpu = (int)live[j].gpu;
 		rec.pid = (long long)live[j].pid;

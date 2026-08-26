@@ -9,11 +9,34 @@ A single-binary C tool for shared GPU servers. It answers three questions:
 It links directly against `libnvidia-ml` (the library behind `nvidia-smi`) and
 reads `/proc` for the parts NVML does not know about, such as who owns a pid.
 
-## Build
+## Install
+
+Build a `.deb` and install it — after which the machine is already collecting
+and ready to report, with nothing left to configure:
+
+```sh
+make deb
+sudo apt install ./gpuwho_0.1.0_amd64.deb
+gpuwho report --day
+```
+
+The postinst enables accounting mode, enables and starts the collector timer,
+and primes the state directory with one immediate tick, so `gpuwho report`
+works right away rather than after the first minute. It warns on stderr if
+accounting could not be enabled or if `nvidia-persistenced` is not running.
+
+Building the package needs only `dpkg-deb` and `fakeroot` — no debhelper, no
+build-deps beyond the compiler and `nvml.h`.
+
+`apt remove` stops and disables the units but keeps your history;
+`apt purge` also deletes `/var/lib/gpuwho` and the config.
+
+## Build from source
 
 ```sh
 make
-sudo make install          # /usr/local/bin/gpuwho
+sudo make install          # /usr/local/bin/gpuwho + man page
+sudo make install-conf     # /etc/gpuwho/ignore.conf (never overwrites)
 ```
 
 Needs a C11 compiler and `nvml.h`, which ships with the CUDA toolkit
@@ -46,6 +69,47 @@ process: user, pid, GPU memory, uptime, command.
 --gpu N     only this GPU index (repeatable)
 --json      machine-readable output
 ```
+
+## What gets counted
+
+**Only compute contexts.** `nvmlDeviceGetComputeRunningProcesses` returns just
+those, so Xorg, the compositor, plasmashell, browsers and the rest of a desktop
+session — all graphics-only, shown as `G` in `nvidia-smi` — never reach gpuwho
+at all. No configuration is needed to exclude them; they are not there in the
+first place.
+
+The case that *does* need a decision is a process holding both a compute and a
+graphics context (`C+G` in `nvidia-smi`): a desktop streaming host, a video
+encoder, sometimes a browser doing CUDA decode. Those really are on the GPU, so
+gpuwho counts them by default. If a particular one is not a job on your
+machine, name it in `/etc/gpuwho/ignore.conf`:
+
+```
+sunshine            # command basename, or the full command line
+*ffmpeg*            # globs work
+cmd:*/some/path*    # full command line only
+user:svc-stream     # by owner
+uid:998             # by uid
+```
+
+The file ships **empty** on purpose: nothing is filtered until you say so, so
+no one's GPU time is ever silently dropped from a report. The same rules can be
+given ad hoc:
+
+```sh
+gpuwho --ignore sunshine        # hide it once
+gpuwho --min-mem 100M           # hide trivial compute contexts
+gpuwho --no-ignore              # ignore the rules; show every compute process
+```
+
+Rules apply to the snapshot *and* to the recorded history, so what you see is
+what gets counted. Two details worth knowing:
+
+- Filtering decides whether to **start** tracking. A process already being
+  tracked is never dropped mid-run by a rule change or by memory drifting
+  across `--min-mem`, so intervals always close cleanly instead of flapping.
+- An ignored process still holds GPU memory. A card can read as `(idle)` in the
+  snapshot while its memory is not free — `--no-ignore` shows the truth.
 
 ## Waiting for a GPU
 
@@ -182,7 +246,31 @@ make test
 The suite drives `gpuwho report` against synthetic event logs, so the paths
 that depend on accounting mode are covered without root and without a GPU.
 
+## Extending: Slurm
+
+Slurm integration is **not** in this repository and is not planned here, but
+nothing in the design blocks it, and the seam is deliberate.
+
+Attribution is assembled in exactly one place — where `gpuwho collect` builds a
+`start` event, marked in [src/cmd_collect.c](src/cmd_collect.c). A Slurm layer
+would read `/proc/<pid>/cgroup`, pull the `job_<id>` component out of the slurm
+cgroup path, and write it as one extra field on that event.
+
+The log format is already prepared for it:
+
+- Every line carries a schema version `v`, so a reader can tell what it is
+  looking at.
+- The reader ignores fields it does not know, so adding `job` breaks neither an
+  existing log nor an older `gpuwho` reading a newer one. This is the reason
+  the event log is JSONL and not CSV.
+- The join key `(gpu, pid, pst)` is independent of any job concept, so
+  per-process history keeps working whether or not a job id is present.
+
+On the report side this would become a grouping option (`--by-job`) alongside
+the existing per-user aggregation, which is already just a key choice in the
+aggregation loop.
+
 ## Scope
 
 No web UI, no database, no Slurm integration, no multi-node aggregation, no
-Windows/WSL, no MIG support.
+Windows/WSL, no MIG support. See **Extending: Slurm** for the seam left open.

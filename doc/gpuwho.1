@@ -1,0 +1,246 @@
+.TH GPUWHO 1 "2026-08-26" "gpuwho 0.1.0" "User Commands"
+.SH NAME
+gpuwho \- who is using the GPUs, when one frees up, and who used how much
+.SH SYNOPSIS
+.B gpuwho
+.RI [ options ]
+.br
+.B gpuwho wait
+.RI [ options ]
+.br
+.B gpuwho report
+.RI [ options ]
+.br
+.B gpuwho collect
+.RI [ options ]
+.br
+.B gpuwho setup
+.RI [ options ]
+.SH DESCRIPTION
+.B gpuwho
+is a single-binary tool for shared GPU servers. It answers three questions: who
+is on the GPUs right now, when a GPU will become free, and who used how much
+over a given period.
+.PP
+The snapshot and
+.B wait
+commands query the driver on demand and need nothing running in the background.
+History is an optional layer on top, combining the driver's accounting mode, a
+systemd timer running a one-shot collector, and an append-only event log that
+.B report
+reads.
+.PP
+It links against
+.BR libnvidia-ml ,
+the library behind
+.BR nvidia-smi (1),
+rather than parsing that command's output, and reads
+.I /proc
+for the parts NVML does not know about, such as who owns a pid.
+.PP
+Only
+.I compute
+contexts are counted. Graphics-only processes \(em Xorg, the compositor,
+browsers, the rest of a desktop session \(em are excluded by NVML itself and
+never appear.
+.SH COMMANDS
+.TP
+.B gpuwho
+Snapshot. Per GPU: index, name, used/total memory, instantaneous utilization.
+Per process: user, pid, GPU memory, uptime, command.
+.TP
+.B gpuwho wait
+Poll until the selected GPUs are free, print what happened, optionally notify,
+and exit. Not a daemon.
+.TP
+.B gpuwho report
+Aggregate per-user usage from the event log over a time window.
+.TP
+.B gpuwho collect
+One collector tick. Run from
+.BR gpuwho-collect.timer (8),
+not by hand.
+.TP
+.B gpuwho setup
+Enable NVIDIA accounting mode on every GPU (requires root) and print install
+guidance.
+.SH GLOBAL OPTIONS
+.TP
+.BI \-\-state\-dir " DIR"
+Where
+.I state.json
+and the event log live. Default
+.IR /var/lib/gpuwho ,
+or
+.BR $GPUWHO_STATE_DIR .
+.TP
+.BI \-\-ignore " RULE"
+Do not count processes matching
+.IR RULE .
+Repeatable. See
+.BR "IGNORE RULES" .
+.TP
+.BI \-\-ignore\-file " FILE"
+Read rules from
+.IR FILE ,
+default
+.IR /etc/gpuwho/ignore.conf .
+.TP
+.B \-\-no\-ignore
+Apply no rules at all; show every compute process.
+.TP
+.BI \-\-min\-mem " SIZE"
+Ignore compute processes holding less than
+.I SIZE
+of GPU memory.
+.TP
+.B \-\-no\-color
+Never colorize, even on a TTY.
+.B NO_COLOR
+is honored as well.
+.TP
+.BR \-h ", " \-\-help
+Show help. After a subcommand, that subcommand's help.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.SH SNAPSHOT OPTIONS
+.TP
+.BI \-\-gpu " N"
+Only this GPU index. Repeatable.
+.TP
+.B \-\-json
+Machine-readable output.
+.SH WAIT OPTIONS
+.TP
+.BI \-g ", " \-\-gpu " N"
+Only this GPU index. Repeatable. With no
+.BR \-\-gpu ,
+every GPU is selected and all of them must be free.
+.TP
+.B \-\-any
+Satisfied as soon as any selected GPU is free.
+.TP
+.BI \-\-mem\-free " SIZE"
+Also require this much free memory.
+.TP
+.BI \-i ", " \-\-interval " S"
+Seconds between polls. Default 10.
+.TP
+.BI \-t ", " \-\-timeout " S"
+Give up after
+.I S
+seconds. Default: wait forever.
+.TP
+.BI \-\-ntfy " TOPIC"
+Notify an ntfy topic, or a full ntfy URL.
+.TP
+.BI \-\-webhook " URL"
+POST a JSON body to this URL.
+.PP
+Notifications exec
+.BR curl (1)
+directly, so the topic and URL are never passed through a shell.
+.SH REPORT OPTIONS
+.TP
+.BR \-\-day ", " \-\-week ", " \-\-month ", " \-\-all
+Relative windows: the last 24 hours, 7 days, 30 days, or everything still in
+the log. Default
+.BR \-\-week .
+.TP
+.BI \-\-since " WHEN" ", " \-\-until " WHEN"
+Explicit window.
+.I WHEN
+is
+.BR now ,
+a relative age
+.RB ( 7d ", " 12h ", " 30m ", " 2w ),
+an absolute
+.B YYYY-MM-DD[ HH:MM[:SS]]
+in local time, or
+.BI @ epoch-seconds .
+.TP
+.B \-\-json
+Machine-readable output.
+.SH IGNORE RULES
+A rule is one of:
+.TP
+.I glob
+Matches the command basename or the full command line.
+.B sunshine
+matches
+.IR /usr/bin/sunshine ;
+.B *ffmpeg*
+matches anything with ffmpeg in its command line.
+.TP
+.BI cmd: glob
+Matches the full command line only.
+.TP
+.BI user: glob
+Matches the owner's name.
+.TP
+.BI uid: n
+Matches the owner's uid exactly.
+.PP
+Rules apply to both the snapshot and the recorded history. They exist for
+processes that genuinely hold a compute context but should not count as jobs on
+a particular machine \(em a desktop streaming host, a video encoder, a service
+account. They are not needed to exclude Xorg or a desktop session, which never
+appear in the first place.
+.PP
+A process already being tracked is never dropped mid-run by a rule change:
+filtering decides whether to
+.I start
+tracking, so intervals always close cleanly.
+.SH EXIT STATUS
+.TP
+.B 0
+Success; for
+.BR wait ,
+the condition was met.
+.TP
+.B 1
+Error.
+.TP
+.B 2
+.B wait
+timed out.
+.SH FILES
+.TP
+.I /etc/gpuwho/ignore.conf
+Ignore rules. Ships empty.
+.TP
+.I /var/lib/gpuwho/state.json
+Collector state: open intervals and the last tick time. Rewritten atomically
+every tick.
+.TP
+.I /var/lib/gpuwho/events-YYYY-MM.jsonl
+Append-only event log, one file per month. Gzipped months are read
+transparently. Retention is file deletion.
+.SH NOTES
+Workloads launched through the Docker daemon appear as
+.B root
+on the host and are attributed to root rather than to a person; rootless Podman
+does not have this problem. Under CUDA MPS, client processes aggregate under the
+MPS server's pid and per-person attribution is lost.
+.PP
+Two different utilization figures exist and are never mixed: the snapshot shows
+.I instantaneous device
+utilization, while the report's
+.B avg-util
+comes from accounting and is the percentage of each process's lifetime during
+which kernels were executing.
+.PP
+The accounting buffer is circular. If many short-lived processes rotate it, some
+end records carry no metrics; those intervals still count toward
+.B gpu-hours
+and
+.B jobs
+but are excluded from
+.B avg-util
+and
+.BR peak-mem .
+.SH SEE ALSO
+.BR nvidia-smi (1),
+.BR nvidia-persistenced (1),
+.BR systemd.timer (5)

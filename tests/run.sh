@@ -211,6 +211,43 @@ else
 fi
 
 # --------------------------------------------------------------------------
+echo '--- ignore rules'
+# These need a GPU with at least one compute process to be meaningful.
+NPROC=$("$GPUWHO" --json 2>/dev/null | grep -o '"pid"' | wc -l)
+if [ "${NPROC:-0}" -ge 1 ]; then
+	count() { "$GPUWHO" --json "$@" 2>/dev/null | grep -o '"pid"' | wc -l; }
+
+	check "no rules shows everything" "$NPROC" "$(count)"
+	check "--min-mem 0 is a no-op"    "$NPROC" "$(count --min-mem 0)"
+	check "--min-mem 1T hides all"    "0"      "$(count --min-mem 1T)"
+	check "--no-ignore beats --min-mem" "$NPROC" "$(count --min-mem 1T --no-ignore)"
+	check "glob '*' hides all"        "0"      "$(count --ignore '*')"
+	check "--no-ignore beats --ignore" "$NPROC" "$(count --ignore '*' --no-ignore)"
+	check "uid:0 leaves non-root"     "$NPROC" "$(count --ignore uid:999999)"
+	check "user glob hides all"       "0"      "$(count --ignore 'user:*')"
+	check "unmatched rule is inert"   "$NPROC" "$(count --ignore no-such-process-xyz)"
+
+	# A rule file behaves the same as repeated --ignore flags.
+	printf '# a comment\n\n*\n' > "$TMP/ign.conf"
+	check "rules from a file"         "0"      "$(count --ignore-file "$TMP/ign.conf")"
+	printf '# only comments\n\n' > "$TMP/empty.conf"
+	check "empty rule file"           "$NPROC" "$(count --ignore-file "$TMP/empty.conf")"
+	check "missing rule file is ok"   "$NPROC" "$(count --ignore-file "$TMP/nope.conf")"
+
+	# The collector must not record what the snapshot hides.
+	rm -rf "$TMP/cst"; mkdir -p "$TMP/cst"
+	GPUWHO_STATE_DIR="$TMP/cst" "$GPUWHO" --ignore '*' collect >/dev/null 2>&1
+	check "collect honors rules" "0" \
+		"$(cat "$TMP/cst"/events-*.jsonl 2>/dev/null | wc -l)"
+	rm -rf "$TMP/cst"; mkdir -p "$TMP/cst"
+	GPUWHO_STATE_DIR="$TMP/cst" "$GPUWHO" collect >/dev/null 2>&1
+	check "collect records otherwise" "$NPROC" \
+		"$(grep -c '"ev":"start"' "$TMP/cst"/events-*.jsonl 2>/dev/null || echo 0)"
+else
+	echo "skip  ignore rules (no compute process on any GPU)"
+fi
+
+# --------------------------------------------------------------------------
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

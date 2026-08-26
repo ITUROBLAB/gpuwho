@@ -1,8 +1,9 @@
 [Unit]
 Description=gpuwho collector tick
+Documentation=man:gpuwho(1)
 After=gpuwho-accounting.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/gpuwho collect
+ExecStart=@BINDIR@/gpuwho collect
 StateDirectory=gpuwho

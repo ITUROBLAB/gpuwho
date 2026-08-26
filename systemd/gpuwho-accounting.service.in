@@ -1,0 +1,15 @@
+[Unit]
+Description=Enable NVIDIA accounting mode for gpuwho
+Documentation=man:gpuwho(1)
+After=nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Accounting mode and the accounting buffer are cleared by a reboot or a
+# driver reload, so this has to run at every boot.
+ExecStart=@BINDIR@/gpuwho setup --quiet
+
+[Install]
+WantedBy=multi-user.target

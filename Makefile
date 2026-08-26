@@ -7,6 +7,14 @@ CUDA_HOME ?= /usr/local/cuda
 
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 UNITDIR := $(DESTDIR)/etc/systemd/system
+CONFDIR := $(DESTDIR)/etc/gpuwho
+
+VERSION := 0.1.0
+DEB_MAINTAINER ?= Kadir Yavuz Kurt <k.yavuzkurt1@gmail.com>
+DEB_ARCH := $(shell dpkg --print-architecture 2>/dev/null || echo amd64)
+DEB_NAME := gpuwho_$(VERSION)_$(DEB_ARCH).deb
+# Deferred (=, not :=): OBJDIR is defined further down.
+DEBROOT   = $(OBJDIR)/deb
 
 BIN    := gpuwho
 SRCDIR := src
@@ -63,7 +71,7 @@ LDLIBS  += $(NVML_LIBS)
 CFLAGS  += $(EXTRA_CFLAGS)
 LDFLAGS += $(EXTRA_LDFLAGS)
 
-.PHONY: all clean install uninstall install-units config test
+.PHONY: all clean install uninstall install-units install-conf config test deb
 
 all: $(BIN)
 
@@ -91,22 +99,83 @@ clean:
 install: $(BIN)
 	install -d $(BINDIR)
 	install -m 0755 $(BIN) $(BINDIR)/$(BIN)
+	install -d $(DESTDIR)$(PREFIX)/share/man/man1
+	gzip -9nc doc/gpuwho.1 > $(DESTDIR)$(PREFIX)/share/man/man1/gpuwho.1.gz
+	chmod 0644 $(DESTDIR)$(PREFIX)/share/man/man1/gpuwho.1.gz
 
-install-units:
+# The units reference gpuwho by absolute path, so the path is substituted at
+# install time rather than duplicated between the repo and the package.
+$(OBJDIR)/%.service: systemd/%.service.in | $(OBJDIR)
+	sed -e 's|@BINDIR@|$(PREFIX)/bin|g' $< > $@
+
+install-units: $(OBJDIR)/gpuwho-accounting.service $(OBJDIR)/gpuwho-collect.service
 	install -d $(UNITDIR)
-	install -m 0644 systemd/gpuwho-accounting.service $(UNITDIR)/
-	install -m 0644 systemd/gpuwho-collect.service    $(UNITDIR)/
-	install -m 0644 systemd/gpuwho-collect.timer      $(UNITDIR)/
+	install -m 0644 $(OBJDIR)/gpuwho-accounting.service $(UNITDIR)/
+	install -m 0644 $(OBJDIR)/gpuwho-collect.service    $(UNITDIR)/
+	install -m 0644 systemd/gpuwho-collect.timer        $(UNITDIR)/
 	@echo
 	@echo "Now run:"
 	@echo "  systemctl daemon-reload"
 	@echo "  systemctl enable --now gpuwho-accounting.service"
 	@echo "  systemctl enable --now gpuwho-collect.timer"
 
+install-conf:
+	install -d $(CONFDIR)
+	test -e $(CONFDIR)/ignore.conf || install -m 0644 conf/ignore.conf $(CONFDIR)/ignore.conf
+
 uninstall:
 	rm -f $(BINDIR)/$(BIN)
+	rm -f $(DESTDIR)$(PREFIX)/share/man/man1/gpuwho.1.gz
 	rm -f $(UNITDIR)/gpuwho-accounting.service
 	rm -f $(UNITDIR)/gpuwho-collect.service
 	rm -f $(UNITDIR)/gpuwho-collect.timer
+
+# --- .deb ---------------------------------------------------------------------
+# Built with dpkg-deb directly: no debhelper, no build-deps beyond dpkg-deb and
+# fakeroot.  The postinst enables accounting and starts the timer, so the
+# machine is ready to report as soon as the package is installed.
+deb: $(BIN) $(OBJDIR)/gpuwho-accounting.service $(OBJDIR)/gpuwho-collect.service
+	@command -v dpkg-deb >/dev/null || { echo "dpkg-deb not found"; exit 1; }
+	@case '$(DEBROOT)' in $(OBJDIR)/*) ;; *) \
+		echo "refusing to clean '$(DEBROOT)': not under $(OBJDIR)"; exit 1 ;; esac
+	rm -rf $(DEBROOT)
+	install -d $(DEBROOT)/DEBIAN
+	install -d $(DEBROOT)/usr/bin
+	install -d $(DEBROOT)/usr/lib/systemd/system
+	install -d $(DEBROOT)/etc/gpuwho
+	install -d $(DEBROOT)/usr/share/doc/gpuwho
+	install -d $(DEBROOT)/usr/share/man/man1
+	install -m 0755 $(BIN) $(DEBROOT)/usr/bin/gpuwho
+	gzip -9nc doc/gpuwho.1 > $(DEBROOT)/usr/share/man/man1/gpuwho.1.gz
+	chmod 0644 $(DEBROOT)/usr/share/man/man1/gpuwho.1.gz
+	sed -e 's|@BINDIR@|/usr/bin|g' systemd/gpuwho-accounting.service.in \
+		> $(DEBROOT)/usr/lib/systemd/system/gpuwho-accounting.service
+	sed -e 's|@BINDIR@|/usr/bin|g' systemd/gpuwho-collect.service.in \
+		> $(DEBROOT)/usr/lib/systemd/system/gpuwho-collect.service
+	install -m 0644 systemd/gpuwho-collect.timer \
+		$(DEBROOT)/usr/lib/systemd/system/gpuwho-collect.timer
+	chmod 0644 $(DEBROOT)/usr/lib/systemd/system/*.service
+	install -m 0644 conf/ignore.conf $(DEBROOT)/etc/gpuwho/ignore.conf
+	install -m 0644 README.md       $(DEBROOT)/usr/share/doc/gpuwho/README.md
+	install -m 0644 packaging/copyright $(DEBROOT)/usr/share/doc/gpuwho/copyright
+	printf 'gpuwho (%s) unstable; urgency=medium\n\n  * Initial release.\n\n -- %s  %s\n' \
+		'$(VERSION)' '$(DEB_MAINTAINER)' "$$(date -R)" \
+		| gzip -9n > $(DEBROOT)/usr/share/doc/gpuwho/changelog.Debian.gz
+	chmod 0644 $(DEBROOT)/usr/share/doc/gpuwho/changelog.Debian.gz
+	echo /etc/gpuwho/ignore.conf > $(DEBROOT)/DEBIAN/conffiles
+	install -m 0755 packaging/postinst $(DEBROOT)/DEBIAN/postinst
+	install -m 0755 packaging/prerm    $(DEBROOT)/DEBIAN/prerm
+	install -m 0755 packaging/postrm   $(DEBROOT)/DEBIAN/postrm
+	sed -e 's|@VERSION@|$(VERSION)|g' \
+	    -e 's|@ARCH@|$(DEB_ARCH)|g' \
+	    -e 's|@MAINTAINER@|$(DEB_MAINTAINER)|g' \
+	    -e "s|@INSTALLED_SIZE@|$$(du -ks $(DEBROOT) | cut -f1)|g" \
+	    packaging/control.in > $(DEBROOT)/DEBIAN/control
+	cd $(DEBROOT) && find . -path ./DEBIAN -prune -o -type f -printf '%P\0' \
+		| xargs -0 md5sum > DEBIAN/md5sums
+	fakeroot dpkg-deb --build $(DEBROOT) $(DEB_NAME)
+	@echo
+	@dpkg-deb --info $(DEB_NAME) | sed -n '1,20p'
+	@echo "built $(DEB_NAME)"
 
 -include $(DEPS)

@@ -1,0 +1,27 @@
+Package: gpuwho
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Depends: libc6 (>= 2.34)
+Recommends: nvidia-persistenced
+Description: who is using the GPUs, when one frees up, and who used how much
+ gpuwho is a single-binary tool for shared GPU servers.  It answers three
+ questions: who is on the GPUs right now, when a GPU will become free, and who
+ used how much over a given period.
+ .
+ The snapshot and wait commands query the driver on demand and need nothing
+ running in the background.  History is an optional layer on top: the driver's
+ accounting mode, a systemd timer running a one-shot collector, and an
+ append-only event log that reports are computed from.
+ .
+ It links against libnvidia-ml, the library behind nvidia-smi, rather than
+ parsing nvidia-smi output, and reads /proc for the parts NVML does not know
+ about, such as who owns a pid.  Only compute contexts are counted; graphics
+ processes such as Xorg and the desktop session are excluded by construction.
+ .
+ This package requires an installed NVIDIA driver, which provides
+ libnvidia-ml.so.1 at run time.  Driver packages vary by vendor and version, so
+ that is not expressed as a hard dependency here.

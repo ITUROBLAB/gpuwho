@@ -2,3 +2,4 @@ build/
 gpuwho
 *.o
 *.d
+*.deb
