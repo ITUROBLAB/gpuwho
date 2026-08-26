@@ -298,6 +298,14 @@ mkmonths() {
 	done
 }
 prune() { GPUWHO_STATE_DIR="$TMP/st" "$GPUWHO" prune "$@" 2>&1; }
+
+# Same, with the timezone pinned.  POSIX TZ strings ("UTC0", "XXX-3" for UTC+3)
+# are used rather than zone names so no tzdata has to be installed.
+prune_tz() {
+	_tz=$1
+	shift
+	TZ="$_tz" GPUWHO_STATE_DIR="$TMP/st" "$GPUWHO" prune "$@" 2>&1
+}
 nmonths() { ls "$TMP/st" 2>/dev/null | grep -c '^events-' || true; }
 
 mkmonths 2025-11 2025-12 2026-01
@@ -310,12 +318,21 @@ check "refuses without a tty"    "1" "$(prune --all </dev/null >/dev/null 2>&1; 
 check "still intact after refusal" "3" "$(nmonths)"
 
 # --older-than only removes months that are ENTIRELY older than the cutoff, so
-# nothing newer than what was asked for is ever destroyed.  Month boundaries are
-# UTC while a bare date parses as local midnight, so a month is kept whenever
-# its UTC end falls after that instant -- use @epoch to pin the boundary exactly.
+# nothing newer than what was asked for is ever destroyed.
+#
+# Month boundaries are UTC while a bare date parses as LOCAL midnight, so the
+# same date cuts differently depending on the timezone -- both correct.  Pin TZ
+# rather than inheriting the machine's, or the expectation only holds in
+# whichever zone the test was written in.
 mkmonths 2025-11 2025-12 2026-01
-prune --older-than 2026-01-01 --yes >/dev/null
-check "--older-than keeps partially-newer months" "2" "$(nmonths)"
+prune_tz UTC0 --older-than 2026-01-01 --yes >/dev/null
+check "--older-than at UTC: December ends exactly on the cutoff" "1" "$(nmonths)"
+
+# UTC+3: local midnight is 21:00Z on Dec 31, three hours BEFORE December's UTC
+# end, so December is not yet entirely older and survives.
+mkmonths 2025-11 2025-12 2026-01
+prune_tz XXX-3 --older-than 2026-01-01 --yes >/dev/null
+check "--older-than at UTC+3: December outlives local midnight" "2" "$(nmonths)"
 
 mkmonths 2025-11 2025-12 2026-01
 prune --older-than @1767225600 --yes >/dev/null   # 2026-01-01T00:00:00Z exactly
