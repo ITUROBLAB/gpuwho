@@ -1,0 +1,8 @@
+[Unit]
+Description=gpuwho collector tick
+After=gpuwho-accounting.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/gpuwho collect
+StateDirectory=gpuwho
