@@ -23,23 +23,46 @@ permissions:
 jobs:
   deb:
     runs-on: ubuntu-24.04
+    # glibc symbol versioning is forward-compatible only: a binary linked
+    # against an older glibc runs fine on newer systems, never the reverse.
+    # Building on the 24.04 host directly binds the binary to 24.04's glibc
+    # and it then refuses to start on 22.04 or 20.04 ("GLIBC_2.38 not
+    # found"). Building inside a 20.04 container instead gives one .deb that
+    # runs on 20.04 through 24.04, so there is no need for a build matrix.
+    container: ubuntu:20.04
     steps:
+      # The container has neither git nor a CA bundle, both of which
+      # actions/checkout needs; install them before it runs. Nothing here is
+      # sudo'd because container steps already run as root.
+      - name: Install checkout prerequisites
+        run: |
+          set -eux
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
-      # The runner has no NVIDIA driver, so there is no libnvidia-ml.so.1 and no
-      # nvml.h.  cuda-nvml-dev ships both the header and a stub library that
-      # records the right SONAME, which is all the link needs: the real library
-      # is resolved on the target machine at run time.
+      - name: Install build tools
+        run: |
+          set -eux
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential wget gnupg fakeroot man-db
+
+      # The container has no NVIDIA driver, so there is no libnvidia-ml.so.1
+      # and no nvml.h.  cuda-nvml-dev ships both the header and a stub
+      # library that records the right SONAME, which is all the link needs:
+      # the real library is resolved on the target machine at run time.
       - name: Install NVML headers and stub
         run: |
           set -eux
-          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-          sudo dpkg -i cuda-keyring_1.1-1_all.deb
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cuda-nvml-dev-12-8
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb
+          dpkg -i cuda-keyring_1.1-1_all.deb
+          apt-get update
+          apt-get install -y --no-install-recommends cuda-nvml-dev-12-8
           test -f /usr/local/cuda-12.8/include/nvml.h
           test -f /usr/local/cuda-12.8/lib64/stubs/libnvidia-ml.so
 
@@ -57,9 +80,9 @@ jobs:
           set -eux
           objdump -p /usr/local/cuda-12.8/lib64/stubs/libnvidia-ml.so \
             | grep -qE 'SONAME +libnvidia-ml\.so\.1'
-          sudo ln -sf /usr/local/cuda-12.8/lib64/stubs/libnvidia-ml.so \
-                      /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
-          sudo ldconfig
+          ln -sf /usr/local/cuda-12.8/lib64/stubs/libnvidia-ml.so \
+                 /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+          ldconfig
           ldconfig -p | grep libnvidia-ml
 
       - name: Check the tag matches the Makefile VERSION
@@ -96,12 +119,12 @@ jobs:
           dpkg-deb --info "$deb"
           dpkg-deb -c "$deb"
           # Installing must not need a driver present.
-          sudo apt-get install -y "./$deb"
+          apt-get install -y "./$deb"
           gpuwho --version
           man -w gpuwho
           test -f /etc/gpuwho/ignore.conf
           systemctl is-enabled gpuwho-collect.timer || true
-          sudo apt-get purge -y gpuwho
+          apt-get purge -y gpuwho
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2

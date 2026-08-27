@@ -95,6 +95,7 @@ config:
 	@echo "nvml.h      = $(NVML_H)"
 	@echo "NVML_CFLAGS = $(NVML_CFLAGS)"
 	@echo "NVML_LIBS   = $(NVML_LIBS)"
+	@echo "LIBC_MIN    = $(LIBC_MIN)"
 
 test: $(BIN)
 	@sh tests/run.sh ./$(BIN)
@@ -142,11 +143,22 @@ uninstall:
 	rm -f $(UNITDIR)/gpuwho-collect.timer
 
 # --- .deb ---------------------------------------------------------------------
+# The newest GLIBC_x.y symbol version the binary actually references -- this
+# is what the target machine's libc must satisfy at minimum, and it depends
+# on the distro the binary was built on, not on anything in this Makefile.
+# Read it off the binary itself rather than hand-maintaining it, so the
+# Depends: field can never drift stale relative to the toolchain that
+# actually built the package.
+LIBC_MIN = $(shell objdump -T $(BIN) 2>/dev/null \
+	| grep -oE 'GLIBC_[0-9]+\.[0-9]+(\.[0-9]+)?' \
+	| sed 's/^GLIBC_//' | sort -V | tail -1)
+
 # Built with dpkg-deb directly: no debhelper, no build-deps beyond dpkg-deb and
 # fakeroot.  The postinst enables accounting and starts the timer, so the
 # machine is ready to report as soon as the package is installed.
 deb: $(BIN) $(OBJDIR)/gpuwho.1 $(OBJDIR)/gpuwho-accounting.service $(OBJDIR)/gpuwho-collect.service
 	@command -v dpkg-deb >/dev/null || { echo "dpkg-deb not found"; exit 1; }
+	@test -n '$(LIBC_MIN)' || { echo "could not determine required GLIBC version from $(BIN)"; exit 1; }
 	@case '$(DEBROOT)' in $(OBJDIR)/*) ;; *) \
 		echo "refusing to clean '$(DEBROOT)': not under $(OBJDIR)"; exit 1 ;; esac
 	rm -rf $(DEBROOT)
@@ -181,6 +193,7 @@ deb: $(BIN) $(OBJDIR)/gpuwho.1 $(OBJDIR)/gpuwho-accounting.service $(OBJDIR)/gpu
 	    -e 's|@ARCH@|$(DEB_ARCH)|g' \
 	    -e 's|@MAINTAINER@|$(DEB_MAINTAINER)|g' \
 	    -e "s|@INSTALLED_SIZE@|$$(du -ks $(DEBROOT) | cut -f1)|g" \
+	    -e 's|@LIBC_MIN@|$(LIBC_MIN)|g' \
 	    packaging/control.in > $(DEBROOT)/DEBIAN/control
 	cd $(DEBROOT) && find . -path ./DEBIAN -prune -o -type f -printf '%P\0' \
 		| xargs -0 md5sum > DEBIAN/md5sums

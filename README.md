@@ -3,6 +3,7 @@
 [![build](https://github.com/ITUROBLAB/gpuwho/actions/workflows/release.yml/badge.svg)](https://github.com/ITUROBLAB/gpuwho/actions/workflows/release.yml)
 ![version](https://img.shields.io/badge/version-0.1.1-blue)
 ![platform](https://img.shields.io/badge/platform-linux%20amd64-lightgrey)
+![ubuntu](https://img.shields.io/badge/Ubuntu-20.04%20%7C%2022.04%20%7C%2024.04-E95420?logo=ubuntu&logoColor=white)
 ![standard](https://img.shields.io/badge/std-C11-blue)
 ![deps](https://img.shields.io/badge/runtime%20deps-libc%20%2B%20NVIDIA%20driver-brightgreen)
 

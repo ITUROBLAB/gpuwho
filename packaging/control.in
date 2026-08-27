@@ -5,7 +5,7 @@ Priority: optional
 Architecture: @ARCH@
 Maintainer: @MAINTAINER@
 Installed-Size: @INSTALLED_SIZE@
-Depends: libc6 (>= 2.34)
+Depends: libc6 (>= @LIBC_MIN@)
 Recommends: nvidia-persistenced
 Description: who is using the GPUs, when one frees up, and who used how much
  gpuwho is a single-binary tool for shared GPU servers.  It answers three
