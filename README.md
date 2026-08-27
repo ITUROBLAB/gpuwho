@@ -20,8 +20,8 @@ reads `/proc` for the parts NVML does not know about, such as who owns a pid.
 
 |  |  |
 |---|---|
-| **Version** | 0.1.1 |
-| **Runtime** | Linux x86-64, an NVIDIA driver providing `libnvidia-ml.so.1` |
+| **Version** | 0.1.2 |
+| **Runtime** | Linux x86-64 (Ubuntu 20.04, 22.04, 24.04), an NVIDIA driver providing `libnvidia-ml.so.1` |
 | **Build** | C11 compiler, GNU make, `nvml.h` (from `cuda-nvml-dev` or `nvidia-cuda-dev`) |
 | **Packaging** | `dpkg-deb` + `fakeroot` — no debhelper |
 | **Optional** | `nvidia-persistenced` (keeps accounting mode alive), `curl` (for `wait` notifications), `gzip` (reads compressed logs) |
@@ -35,7 +35,7 @@ it. The machine is collecting and ready to report as soon as it lands — there
 is nothing further to configure:
 
 ```sh
-sudo apt install ./gpuwho_0.1.1_amd64.deb
+sudo apt install ./gpuwho_0.1.2_amd64.deb
 gpuwho report --day
 ```
 
@@ -48,7 +48,7 @@ To build the package yourself instead:
 
 ```sh
 make deb
-sudo apt install ./gpuwho_0.1.1_amd64.deb
+sudo apt install ./gpuwho_0.1.2_amd64.deb
 ```
 
 `apt remove` stops and disables the units but keeps your history;
@@ -340,4 +340,4 @@ Feel free to reach out to the maintainer k.yavuzkurt1@gmail.com if you have ques
 
 ## License
 
-TBD
+BSD 3-Clause License. See [LICENSE](LICENSE).
